@@ -39,6 +39,7 @@
 #include "frrstr.h"
 #include "json.h"
 #include "ferr.h"
+#include "stdarg.h"
 
 DEFINE_MTYPE_STATIC(MVTYSH, VTYSH_CMD, "Vtysh cmd copy");
 
@@ -4473,8 +4474,17 @@ DEFPY (no_vtysh_terminal_monitor,
 
 /* Execute command in child process. */
 static void execute_command(const char *command, int argc, const char *arg1,
-			    const char *arg2)
+			    const char *arg2, ...)
 {
+	va_list args;
+	const char *arg3 = NULL;
+
+	va_start(args, arg2);
+	if (argc > 2) {
+		arg3 = va_arg(args, const char *);
+	}
+	va_end(args);
+
 	pid_t pid;
 	int status;
 
@@ -4498,6 +4508,10 @@ static void execute_command(const char *command, int argc, const char *arg1,
 			execlp(command, command, arg1, arg2,
 			       (const char *)NULL);
 			break;
+		case 3:
+			execlp(command, command, arg1, arg2, arg3,
+			       (const char *)NULL);
+			break;
 		}
 
 		/* When execlp suceed, this part is not executed. */
@@ -4514,14 +4528,36 @@ static void execute_command(const char *command, int argc, const char *arg1,
 
 DEFUN (vtysh_ping,
        vtysh_ping_cmd,
-       "ping WORD",
+       "ping WORD [ repeat <0-4294967295> ]",
        "Send echo messages\n"
-       "Ping destination address or hostname\n")
+       "Ping destination address or hostname\n"
+	   "specify repeat count\n")
 {
 	int idx = 1;
+	int repeat_idx = -1;
+	int repeat = 1;
 
 	argv_find(argv, argc, "WORD", &idx);
-	execute_command("ping", 1, argv[idx]->arg, NULL);
+	for (int i = 0; i < argc; i++) {
+		if (strcmp(argv[i]->arg, "repeat") == 0 && i + 1 < argc) {
+			repeat_idx = i + 1;
+			repeat = atoi(argv[repeat_idx]->arg);
+			if (repeat <= 0) {
+                printf("Invalid repeat count.\n");
+                return CMD_ERR_NO_MATCH;
+            }
+		}
+	}
+
+	if (repeat_idx != -1) {
+		char repeat_str[10];
+		snprintf(repeat_str, sizeof(repeat_str), "%d", repeat);
+		execute_command("ping", 3, argv[idx]->arg, " -c ", repeat_str, NULL);
+	}
+	else {
+		execute_command("ping", 1, argv[idx]->arg, NULL);
+	}
+
 	return CMD_SUCCESS;
 }
 
